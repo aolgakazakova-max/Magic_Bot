@@ -105,7 +105,7 @@ async def menu_translate(callback: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "menu:analytics")
 async def menu_analytics(callback: CallbackQuery):
     await callback.answer()
-    await safe_send_photo(callback, "images/analytics.png", "📈 Аналитика\nВыбери действие:")
+    await safe_send_photo(callback, "analytics.png", "📈 Аналитика\nВыбери действие:")
     await callback.message.answer(
         "📊 Выберите действие:",
         reply_markup=analysis_menu()
