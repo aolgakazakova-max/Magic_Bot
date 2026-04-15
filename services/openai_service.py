@@ -1,91 +1,123 @@
 import logging
 from typing import Any
-import asyncio, ssl, certifi
-from openai import AsyncOpenAI
-from config import TOKEN_GPT_AI
+import asyncio
 import pandas as pd
 
+from openai import AsyncOpenAI
+from config import TOKEN_GPT_AI
+
 logger = logging.getLogger(__name__)
-MODEL = 'gpt-4o-mini'
+
+MODEL = "gpt-4o-mini"
 
 _client: AsyncOpenAI | None = None
 
+
+
 def get_client() -> AsyncOpenAI:
     global _client
+
     if _client is None:
-        ssl_context = ssl.create_default_context(cafile=certifi.where())
-        _client = AsyncOpenAI(api_key=TOKEN_GPT_AI,)
+        _client = AsyncOpenAI(
+            api_key=TOKEN_GPT_AI
+        )
+
     return _client
+
+
 
 def _normalize_text(value: Any) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, (list, tuple)):
-        return ''.join(_normalize_text(item) for item in value)
+        return " ".join(_normalize_text(v) for v in value)
     if value is None:
-        return ''
+        return ""
     return str(value)
 
-async def ask_gpt(user_message: Any, system_prompt: Any = 'Ты полезный ассистент. Отвечай кратко и по делу',
-                  history: list[dict[str, Any]] | None = None) -> str:
+
+
+async def ask_gpt(
+    user_message: Any,
+    system_prompt: Any = "Ты полезный ассистент. Отвечай кратко и по делу",
+    history: list[dict[str, Any]] | None = None
+) -> str:
+
     try:
-        system_text = _normalize_text(system_prompt)
-        user_text = _normalize_text(user_message)
-        messages = [{'role': 'system', 'content': system_text}]
+        messages = [
+            {
+                "role": "system",
+                "content": _normalize_text(system_prompt)
+            }
+        ]
+
         if history:
-            messages.extend([{'role': item['role'], 'content': _normalize_text(item['content'])}
-                             for item in history if isinstance(item, dict) and 'role' in item and 'content' in item])
-        messages.append({'role': 'user', 'content': user_text})
+            messages.extend([
+                {
+                    "role": item["role"],
+                    "content": _normalize_text(item["content"])
+                }
+                for item in history
+                if isinstance(item, dict) and "role" in item and "content" in item
+            ])
+
+        messages.append({
+            "role": "user",
+            "content": _normalize_text(user_message)
+        })
 
         client = get_client()
+
         response = await client.chat.completions.create(
             model=MODEL,
             messages=messages,
-            max_tokens=1000,
-            temperature=0.8
+            temperature=0.7,
+            max_tokens=800
         )
 
         if not response.choices:
-            return 'Пустой ответ от GPT'
-        answer = response.choices[0].message.content or ''
-        return answer
+            return "❌ Пустой ответ GPT"
+
+        return response.choices[0].message.content or "❌ Пустой ответ"
+
     except asyncio.CancelledError:
         raise
+
     except Exception as e:
-        logger.exception(f'Ошибка GPT: {e}')
-        return 'Ошибка при обращении к GPT. Попробуй еще раз'
+        logger.exception(f"GPT error: {e}")
+        return "❌ Ошибка GPT"
 
 
 
 async def ai_analyze_dataframe(df: pd.DataFrame) -> str:
+
     try:
         client = get_client()
 
-        # ограничим размер (очень важно!)
-        df = df.head(50)
+        df = df.head(30)  # ограничение (важно!)
 
-        summary = df.describe().to_string()
         head = df.head().to_string()
+        summary = df.describe(include="all").to_string()
 
         prompt = f"""
-                Ты профессиональный аналитик данных.
+Ты профессиональный аналитик данных.
 
-                Вот данные из Excel:
+Проанализируй Excel данные:
 
-                Первые строки:
-                {head}
+=== ПЕРВЫЕ СТРОКИ ===
+{head}
 
-                Статистика:
-                {summary}
+=== СТАТИСТИКА ===
+{summary}
 
-                Сделай:
-                1. Что это за данные
-                2. Основные тренды
-                3. Аномалии (если есть)
-                4. Краткие выводы
+Дай:
+1. Что это за данные
+2. Основные тренды
+3. Аномалии
+4. Вывод
 
-                Пиши простым и понятным языком на русском.
-            """
+Пиши просто и по-русски.
+"""
 
         response = await client.chat.completions.create(
             model=MODEL,
@@ -102,5 +134,5 @@ async def ai_analyze_dataframe(df: pd.DataFrame) -> str:
         return response.choices[0].message.content or "❌ Пустой ответ"
 
     except Exception as e:
-        logger.exception(f"Ошибка AI анализа: {e}")
-        return "❌ Ошибка при анализе данных"
+        logger.exception(f"Excel AI error: {e}")
+        return "❌ Ошибка анализа Excel"

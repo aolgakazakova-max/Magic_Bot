@@ -1,143 +1,133 @@
+import json
 import tempfile
-import logging
-
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+from io import BytesIO
 
 from aiogram import Router, F
-from aiogram.filters import Command
-from aiogram.types import CallbackQuery, Message, FSInputFile
-from keyboards.inline import analysis_menu, main_menu
-from states.state import ExcelStates
+from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton, BufferedInputFile
 from aiogram.fsm.context import FSMContext
+
+from states.state import ExcelStates
 from services.openai_service import ai_analyze_dataframe
+
 router = Router()
-logger = logging.getLogger(__name__)
 
 
-async def safe_send_photo(target, photo, caption):
-    if isinstance(target, CallbackQuery):
-        await target.message.answer_photo(photo=FSInputFile(photo), caption=caption)
-    else:
-        await target.answer_photo(photo=FSInputFile(photo), caption=caption)
 
-
-@router.message(Command("chart"))
-async def cmd_chart(message: Message, state: FSMContext):
-    await state.update_data(action="chart")
-    await state.set_state(ExcelStates.waiting_file)
-    await message.answer("📂 Отправь Excel файл (.xlsx)")
-
-@router.message(Command("ai"))
-async def cmd_ai(message: Message):
-    await generate_ai_analysis(message)
-
-@router.message(Command("info"))
-async def cmd_info(message: Message):
-    await generate_info(message)
-
-
-@router.callback_query(F.data.startswith("menu:analytics:"))
-async def analytics_buttons(callback: CallbackQuery, state: FSMContext):
+@router.callback_query(F.data == "analytics:upload")
+async def upload_excel(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    action = callback.data.split(":")[-1]
 
-    if action in ["chart", "ai", "info"]:
-        await state.update_data(action=action)
-        await state.set_state(ExcelStates.waiting_file)
+    await state.clear()
+    await state.set_state(ExcelStates.waiting_file)
 
-        await callback.message.answer(
-            "📂 Отправь Excel файл (.xlsx)"
-        )
+    await callback.message.answer("📂 Отправь Excel файл (.xlsx)")
 
-    elif action == "back":
-        await callback.message.answer(
-            "⬅️ Возврат в главное меню",
-            reply_markup=main_menu()
-        )
+
+
 @router.message(ExcelStates.waiting_file, F.document)
 async def handle_excel(message: Message, state: FSMContext):
-    data = await state.get_data()
-    action = data.get("action")
+    doc = message.document
 
-    document = message.document
-
-    if not document.file_name.endswith('.xlsx'):
-        await message.answer("❌ Отправь Excel файл (.xlsx)")
+    if not doc.file_name.endswith(".xlsx"):
+        await message.answer("❌ Только .xlsx файлы")
         return
 
-    file = await message.bot.get_file(document.file_id)
+    file = await message.bot.get_file(doc.file_id)
 
     with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
         await message.bot.download_file(file.file_path, tmp.name)
         df = pd.read_excel(tmp.name)
 
 
+    await state.update_data(df_json=df.to_json())
+
+    await state.set_state(ExcelStates.choosing_action)
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 График", callback_data="excel:chart")],
+        [InlineKeyboardButton(text="🤖 AI анализ", callback_data="excel:ai")],
+        [InlineKeyboardButton(text="📝 Сводка", callback_data="excel:info")],
+        [InlineKeyboardButton(text="📂 Загрузить заново", callback_data="analytics:upload")],
+    ])
+
+    await message.answer("📊 Выбери действие:", reply_markup=keyboard)
+
+
+
+@router.callback_query(F.data.startswith("excel:"))
+async def process_excel(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+
+    data = await state.get_data()
+
+    raw = data.get("df_json")
+    if not raw:
+        await callback.message.answer("❌ Сначала загрузи Excel файл")
+        return
+
+
+    df = pd.DataFrame(json.loads(raw))
+
+    action = callback.data.split(":")[1]
+    print("🔥 ACTION:", action)
+
+
     if action == "chart":
-        await generate_chart_from_df(message, df)
+        try:
+            df = df.head(10)
+
+            if len(df.columns) < 2:
+                await callback.message.answer("❌ Нужно минимум 2 столбца для графика")
+                return
+
+            x = df.iloc[:, 0]
+            y = df.iloc[:, 1]
+
+            plt.figure()
+            plt.plot(x, y, marker="o")
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+
+            buf = BytesIO()
+            plt.savefig(buf, format="png")
+            buf.seek(0)
+            plt.close()
+
+            photo = BufferedInputFile(buf.read(), filename="chart.png")
+
+            await callback.message.answer_photo(
+                photo=photo,
+                caption="📊 Ваш график"
+            )
+
+        except Exception as e:
+            await callback.message.answer(f"❌ Ошибка графика: {e}")
+
+
 
     elif action == "ai":
-        await message.answer("🤖 Анализирую...")
-        analysis = await ai_analyze_dataframe(df)
-        await message.answer(analysis)
+        await callback.message.answer("🤖 Анализирую данные...")
+        result = await ai_analyze_dataframe(df)
+        await callback.message.answer(result)
+
+
 
     elif action == "info":
-        text = df.describe().to_string()
-        await message.answer(f"<pre>{text}</pre>", parse_mode="HTML")
+        await callback.message.answer(
+            f"<pre>{df.describe().to_string()}</pre>",
+            parse_mode="HTML"
+        )
+
 
     await state.clear()
 
 
-async def generate_chart_from_df(message, df):
-    if df.shape[1] < 2:
-        await message.answer("❌ Нужно минимум 2 столбца")
-        return
 
-    plt.figure(figsize=(6, 4))
-    sns.barplot(x=df.iloc[:, 0], y=df.iloc[:, 1])
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as img:
-        plt.savefig(img.name)
-        plt.close()
-
-        await message.answer_photo(
-            FSInputFile(img.name),
-            caption="📊 График построен!"
-        )
-async def generate_ai_analysis(target):
-    await safe_send_photo(target, "images/ai.png", "🤖 AI Аналитика выполняется...")
-
-    if isinstance(target, CallbackQuery):
-        await target.message.answer(
-            "⚡️ Здесь будет вывод AI анализа данных",
-            reply_markup=analysis_menu()
-        )
-    else:
-        await target.answer(
-            "⚡️ Здесь будет вывод AI анализа данных",
-            reply_markup=analysis_menu()
-        )
-
-async def generate_info(target):
-    await safe_send_photo(target, "images/info.png", "📝 Сводка данных")
-
-    if isinstance(target, CallbackQuery):
-        await target.message.answer(
-            "📋 Здесь будет текстовая сводка аналитики",
-            reply_markup=analysis_menu()
-        )
-    else:
-        await target.answer(
-            "📋 Здесь будет текстовая сводка аналитики",
-            reply_markup=analysis_menu()
-        )
-
-@router.callback_query(F.data == "menu:analytics:upload")
-async def upload_excel(callback: CallbackQuery):
+@router.callback_query(F.data == "analytics:back")
+async def back(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
-    await callback.message.answer(
-        "📂 Отправь Excel файл (.xlsx), и я построю график"
-    )
+    await state.clear()
+
+    await callback.message.answer("🏠 Главное меню")

@@ -1,112 +1,207 @@
 import logging
 
-from pathlib import Path
-
 from aiogram import Router, F
-from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, FSInputFile, InputMediaPhoto
+from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 
-from handlers.talk import PERSONS
-from keyboards.inline import main_menu, random_keyboard, gpt_keyboard, persons_keyboard, analysis_menu
-from states.state import TalkStates, TranslateStates
+from keyboards.inline import (
+    main_menu,
+    persons_keyboard,
+    analysis_menu,
+    topics_keyboard,
+    gpt_keyboard,
+    help_keyboard,
+    translate_language_keyboard
+)
+
+from states.state import TalkStates, QuizStates, GptStates
+from data.topics import TOPICS
 from handlers.random_fact import send_random_fact
+from handlers.talk import PERSONS
 
 router = Router()
 logger = logging.getLogger(__name__)
 
-IMAGES_PATH = Path("images")
 
-
-
-@router.message(Command("start"))
-async def cmd_start(message: Message):
-    await message.answer(
-        f"Привет, <b>{message.from_user.first_name or 'Пользователь'}</b>!\n"
-        "Выбери что тебя интересует:",
-        reply_markup=main_menu(),
-        parse_mode="html"
+# =======================
+# UTIL: TRANSLATE SCREEN
+# =======================
+async def open_translate(target):
+    await target.answer(
+        "🌍 Выберите язык перевода:",
+        reply_markup=translate_language_keyboard()
     )
 
 
-@router.message(Command("help"))
+# =======================
+# COMMANDS
+# =======================
+
+@router.message(F.text == "/start")
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
+
+    await message.answer(
+        f"Привет, <b>{message.from_user.first_name or 'Пользователь'}!</b>",
+        reply_markup=main_menu(),
+        parse_mode="HTML"
+    )
+
+
+@router.message(F.text == "/stop")
+async def cmd_stop(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("Бот остановлен. Нажми /start чтобы начать снова")
+
+
+@router.message(F.text == "/help")
 async def cmd_help(message: Message):
     await message.answer(
-        "<b>Команды:</b>\n"
-        "/start - Главное меню\n"
-        "/random - Случайный факт\n"
-        "/gpt - Диалог с ChatGPT\n"
-        "/talk - Диалог с известной личностью\n"
-        "/quiz - Квиз\n"
-        "/translate - Переводчик\n"
-        "/analytics - Аналитика",
-        reply_markup=main_menu(),
-        parse_mode="html"
+        "📌 Команды бота:\n\n"
+        "/start — главное меню\n"
+        "/help — инфо\n"
+        "/stop — остановить текущий режим\n"
+        "/gpt — ChatGPT\n"
+        "/talk — диалог с личностью\n"
+        "/quiz — квиз\n"
+        "/translate — перевод\n"
+        "/analytics — аналитика\n",
+        reply_markup=help_keyboard()
     )
 
 
+@router.message(F.text == "/gpt")
+async def cmd_gpt(message: Message, state: FSMContext):
+    await state.set_state(GptStates.chatting)
+    await state.update_data(history=[])
 
-async def safe_send_photo(target, photo_filename, caption):
-    # путь к изображению через IMAGES_PATH
-    photo_path = IMAGES_PATH / photo_filename
+    await message.answer(
+        "🤖 GPT режим включен\nНапиши сообщение:",
+        reply_markup=gpt_keyboard()
+    )
 
-    msg = target.message if isinstance(target, CallbackQuery) else target
-    if not photo_path.exists():
-        await msg.answer(f"Файл {photo_filename} не найден 😢")
-        return
 
-    try:
-        photo = FSInputFile(photo_path)
-        await msg.edit_media(media=InputMediaPhoto(media=photo, caption=caption))
-    except:
-        await msg.answer_photo(photo=FSInputFile(photo_path), caption=caption)
+@router.message(F.text == "/talk")
+async def cmd_talk(message: Message, state: FSMContext):
+    await state.set_state(TalkStates.choosing_person)
 
+    await message.answer(
+        "Выберите персонажа:",
+        reply_markup=persons_keyboard(PERSONS)
+    )
+
+
+@router.message(F.text == "/quiz")
+async def cmd_quiz(message: Message, state: FSMContext):
+    await state.set_state(QuizStates.choosing_topic)
+
+    await message.answer(
+        "Выберите тему:",
+        reply_markup=topics_keyboard(TOPICS)
+    )
+
+
+@router.message(F.text == "/analytics")
+async def cmd_analytics(message: Message):
+    await message.answer(
+        "📊 Аналитика:",
+        reply_markup=analysis_menu()
+    )
+
+
+@router.message(F.text == "/translate")
+async def cmd_translate(message: Message):
+    await open_translate(message)
+
+
+# =======================
+# CALLBACKS
+# =======================
+
+@router.callback_query(F.data == "menu:gpt")
+async def cb_gpt(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(GptStates.chatting)
+    await state.update_data(history=[])
+
+    await callback.message.answer("🤖 GPT режим включен", reply_markup=gpt_keyboard())
+    await callback.answer()
 
 
 @router.callback_query(F.data == "menu:random")
-async def menu_random(callback: CallbackQuery):
+async def cb_random(callback: CallbackQuery):
+    await send_random_fact(callback.message)
     await callback.answer()
-    await safe_send_photo(callback, "random.png", "🎲 Случайный факт")
-    await send_random_fact(callback.message, reply_markup=random_keyboard())
-
-
-@router.callback_query(F.data == "menu:gpt")
-async def menu_gpt(callback: CallbackQuery):
-    await callback.answer()
-    await safe_send_photo(callback, "gpt.png", "🤖 Режим ChatGPT\nНапиши /gpt чтобы начать")
-    await callback.message.answer("Используй клавиатуру для выхода из режима:", reply_markup=gpt_keyboard())
 
 
 @router.callback_query(F.data == "menu:talk")
-async def menu_talk(callback: CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await state.clear()
+async def cb_talk(callback: CallbackQuery, state: FSMContext):
     await state.set_state(TalkStates.choosing_person)
-    await safe_send_photo(callback, "talk.png", "🗣️ Диалог с личностью\nВыбери собеседника:")
 
-    await callback.message.answer(text="Выберите собеседника:",reply_markup=persons_keyboard(PERSONS))
+    await callback.message.answer(
+        "Выберите персонажа:",
+        reply_markup=persons_keyboard(PERSONS)
+    )
+    await callback.answer()
 
 
 @router.callback_query(F.data == "menu:quiz")
-async def menu_quiz(callback: CallbackQuery):
-    await callback.answer()
-    await safe_send_photo(callback, "quiz.png", "🎯 Квиз из\nСкоро будет доступен")
+async def cb_quiz(callback: CallbackQuery, state: FSMContext):
+    await state.set_state(QuizStates.choosing_topic)
 
-
-@router.callback_query(F.data == "menu:translate")
-async def menu_translate(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer(
+        "Выберите тему:",
+        reply_markup=topics_keyboard(TOPICS)
+    )
     await callback.answer()
-    await state.clear()
-    await state.set_state(TranslateStates.waiting_for_text)
-    await safe_send_photo(callback, "translate.png", "🔃 Переводчик")
-    await callback.message.answer("✏️ Отправь текст для перевода:")
 
 
 @router.callback_query(F.data == "menu:analytics")
-async def menu_analytics(callback: CallbackQuery):
-    await callback.answer()
-    await safe_send_photo(callback, "analytics.png", "📈 Аналитика\nВыбери действие:")
+async def cb_analytics(callback: CallbackQuery):
     await callback.message.answer(
-        "📊 Выберите действие:",
+        "📊 Аналитика:",
         reply_markup=analysis_menu()
     )
+    await callback.answer()
+
+
+# =======================
+# TRANSLATE (FIX)
+# =======================
+
+@router.callback_query(F.data == "menu:translate")
+async def cb_translate(callback: CallbackQuery):
+    await callback.answer()
+    await open_translate(callback.message)
+
+
+# =======================
+# HELP MENU
+# =======================
+
+@router.callback_query(F.data == "menu:help")
+async def cb_help(callback: CallbackQuery):
+    await callback.message.answer(
+        "📌 Команды бота:\n\n"
+        "/start — главное меню\n"
+        "/help — инфо\n"
+        "/stop — остановить текущий режим\n"
+        "/gpt — ChatGPT\n"
+        "/talk — диалог с личностью\n"
+        "/quiz — квиз\n"
+        "/translate — перевод\n"
+        "/analytics — аналитика\n",
+        reply_markup=help_keyboard()
+    )
+    await callback.answer()
+
+
+# =======================
+# BACK BUTTON
+# =======================
+
+@router.callback_query(F.data == "menu:back")
+async def cb_back(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+
+    await callback.message.answer("🏠 Главное меню", reply_markup=main_menu())
+    await callback.answer()
