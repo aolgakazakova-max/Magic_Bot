@@ -12,7 +12,7 @@ from keyboards.inline import gpt_keyboard, main_menu
 router = Router()
 
 
-# ===== GPT CHAT =====
+
 @router.message(GptStates.chatting, F.text)
 async def gpt_chat(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -42,7 +42,7 @@ async def gpt_chat(message: Message, state: FSMContext):
     )
 
 
-# ===== STOP GPT =====
+
 @router.callback_query(F.data == "gpt:stop")
 async def stop_gpt(callback: CallbackQuery, state: FSMContext):
     await state.clear()

@@ -69,9 +69,12 @@ def after_answer_keyboard():
     ])
 
 
-def analysis_menu():
+def analytics_menu():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📂 Excel", callback_data="analytics:upload")],
+        [InlineKeyboardButton(text="📊 График", callback_data="excel:chart")],
+        [InlineKeyboardButton(text="🤖 AI анализ", callback_data="excel:ai")],
+        [InlineKeyboardButton(text="📄 Инфо", callback_data="excel:info")],
+        [InlineKeyboardButton(text="📂 Загрузить Excel", callback_data="excel:upload")],
         [InlineKeyboardButton(text="🏠 В меню", callback_data="menu:back")]
     ])
 

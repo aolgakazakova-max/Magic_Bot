@@ -13,7 +13,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 
-# ⚠️ ВАЖНО: ключи БЕЗ пробелов
+
 PERSONS = {
     "vangog": {
         "name": "Ван Гог",
@@ -41,7 +41,7 @@ PERSONS = {
 }
 
 
-# ===== ВЫБОР ПЕРСОНАЖА =====
+
 @router.callback_query(TalkStates.choosing_person, F.data.startswith("talk:person:"))
 async def choose_person(callback: CallbackQuery, state: FSMContext):
     key = callback.data.split(":")[-1]
@@ -60,7 +60,7 @@ async def choose_person(callback: CallbackQuery, state: FSMContext):
     )
 
 
-# ===== ЧАТ =====
+
 @router.message(TalkStates.chatting, F.text)
 async def chat(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -78,7 +78,7 @@ async def chat(message: Message, state: FSMContext):
     await message.answer(response, reply_markup=talk_keyboard())
 
 
-# ===== СТОП =====
+
 @router.callback_query(F.data == "talk:stop")
 async def stop(callback: CallbackQuery, state: FSMContext):
     await state.clear()

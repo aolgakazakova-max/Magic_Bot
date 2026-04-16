@@ -1,4 +1,7 @@
 import logging
+from aiogram.types import Message
+from aiogram import Bot
+
 from html import escape
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -45,6 +48,12 @@ async def send_random_fact(message: Message, reply_markup=None):
             parse_mode='html'
         )
 
+
+async def safe_send_photo(message: Message, photo, caption: str = ""):
+    try:
+        await message.answer_photo(photo=photo, caption=caption)
+    except Exception:
+        await message.answer(caption or "Ошибка отправки фото")
 
 @router.message(Command('random'))
 async def cmd_random(message: Message):

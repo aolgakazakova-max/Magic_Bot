@@ -223,3 +223,6 @@ temp_*
 # images/
 !images/
 !images/*
+*.xlsx
+*.png
+chart.png

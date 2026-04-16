@@ -13,9 +13,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 
-# =======================
-# START TRANSLATE (/translate и кнопка)
-# =======================
+
 @router.message(F.text == "/translate")
 async def cmd_translate(message: Message, state: FSMContext):
     await state.set_state(TranslateStates.choosing_language)
@@ -36,9 +34,7 @@ async def start_translate(callback: CallbackQuery, state: FSMContext):
         reply_markup=translate_language_keyboard()
     )
 
-# =======================
-# TRANSLATE TEXT
-# =======================
+
 @router.message(TranslateStates.waiting_text, F.text)
 async def translate_text(message: Message, state: FSMContext):
     data = await state.get_data()
@@ -63,9 +59,7 @@ async def translate_text(message: Message, state: FSMContext):
         reply_markup=main_menu()
     )
 
-# =======================
-# CHOOSE LANGUAGE
-# =======================
+
 @router.callback_query(
     TranslateStates.choosing_language,
     F.data.startswith("translate:")

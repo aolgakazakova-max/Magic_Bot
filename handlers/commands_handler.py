@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from keyboards.inline import (
     main_menu,
     persons_keyboard,
-    analysis_menu,
+    analytics_menu,
     topics_keyboard,
     gpt_keyboard,
     help_keyboard,
@@ -23,9 +23,7 @@ router = Router()
 logger = logging.getLogger(__name__)
 
 
-# =======================
-# UTIL: TRANSLATE SCREEN
-# =======================
+
 async def open_translate(target):
     await target.answer(
         "🌍 Выберите язык перевода:",
@@ -33,9 +31,6 @@ async def open_translate(target):
     )
 
 
-# =======================
-# COMMANDS
-# =======================
 
 @router.message(F.text == "/start")
 async def cmd_start(message: Message, state: FSMContext):
@@ -105,7 +100,7 @@ async def cmd_quiz(message: Message, state: FSMContext):
 async def cmd_analytics(message: Message):
     await message.answer(
         "📊 Аналитика:",
-        reply_markup=analysis_menu()
+        reply_markup=analytics_menu()
     )
 
 
@@ -114,9 +109,7 @@ async def cmd_translate(message: Message):
     await open_translate(message)
 
 
-# =======================
-# CALLBACKS
-# =======================
+
 
 @router.callback_query(F.data == "menu:gpt")
 async def cb_gpt(callback: CallbackQuery, state: FSMContext):
@@ -159,24 +152,16 @@ async def cb_quiz(callback: CallbackQuery, state: FSMContext):
 async def cb_analytics(callback: CallbackQuery):
     await callback.message.answer(
         "📊 Аналитика:",
-        reply_markup=analysis_menu()
+        reply_markup=analytics_menu()
     )
     await callback.answer()
 
-
-# =======================
-# TRANSLATE (FIX)
-# =======================
 
 @router.callback_query(F.data == "menu:translate")
 async def cb_translate(callback: CallbackQuery):
     await callback.answer()
     await open_translate(callback.message)
 
-
-# =======================
-# HELP MENU
-# =======================
 
 @router.callback_query(F.data == "menu:help")
 async def cb_help(callback: CallbackQuery):
@@ -195,9 +180,21 @@ async def cb_help(callback: CallbackQuery):
     await callback.answer()
 
 
-# =======================
-# BACK BUTTON
-# =======================
+
+
+@router.callback_query(F.data == "talk:change")
+async def change_person(callback: CallbackQuery, state: FSMContext):
+    await callback.answer()
+
+    await state.set_state(TalkStates.choosing_person)
+
+    await callback.message.answer(
+        "🔄 Выбери нового собеседника:",
+        reply_markup=persons_keyboard(PERSONS)
+    )
+
+
+
 
 @router.callback_query(F.data == "menu:back")
 async def cb_back(callback: CallbackQuery, state: FSMContext):
